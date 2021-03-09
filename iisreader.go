@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math"
 	"os"
 	"sort"
@@ -23,23 +24,14 @@ type ipinfo struct {
 	norequest int
 }
 
-<<<<<<< HEAD
-//var files = flag.String("f", "", "log files to be read")
-var detail = flag.String("d", "page", "level of detail: page | ip | status | all")
-var reqstr = flag.String("r", ".aspx", "request string")
-var verbose = flag.Bool("v", true, "write report to screen")
-var reportname = flag.String("e", "Logreport.xlsx", "Excel report filename")
-var mail = flag.Bool("m", false, "send mail")
-=======
 var (
-	files = flag.String("f", "", "log files to be read")
-	detail = flag.String("d", "page", "level of detail: page | ip | status | all")
-	reqstr = flag.String("r", ".aspx", "request string")
-	verbose = flag.Bool("v", true, "write report to screen")
+	files      = flag.String("f", "", "log files to be read")
+	detail     = flag.String("d", "page", "level of detail: page | ip | status | all")
+	reqstr     = flag.String("r", ".aspx", "request string")
+	verbose    = flag.Bool("v", true, "write report to screen")
 	reportname = flag.String("e", "Logreport.xlsx", "Excel report filename")
-	mail = flag.Bool("m", false, "send mail")
+	mail       = flag.Bool("m", false, "send mail")
 )
->>>>>>> 6dcad5fe600f51b780e7440fcd62fed1020074b9
 
 func main() {
 	flag.Parse()
