@@ -23,12 +23,14 @@ type ipinfo struct {
 	norequest int
 }
 
-//var files = flag.String("f", "", "log files to be read")
-var detail = flag.String("d", "page", "level of detail: page | ip | status | all")
-var reqstr = flag.String("r", ".aspx /api/", "request string")
-var verbose = flag.Bool("v", true, "write report to screen")
-var reportname = flag.String("e", "Logreport.xlsx", "Excel report filename")
-var mail = flag.Bool("m", false, "send mail")
+var (
+	files = flag.String("f", "", "log files to be read")
+	detail = flag.String("d", "page", "level of detail: page | ip | status | all")
+	reqstr = flag.String("r", ".aspx /api/", "request string")
+	verbose = flag.Bool("v", true, "write report to screen")
+	reportname = flag.String("e", "Logreport.xlsx", "Excel report filename")
+	mail = flag.Bool("m", false, "send mail")
+)
 
 func main() {
 	flag.Parse()
@@ -50,7 +52,7 @@ func main() {
 		}
 		sort.Strings(keys)
 		if contains(*detail, "page all") {
-			reportPage(&requestrows, keys, *reqstr, date, f)
+			reportPage(requestrows, keys, *reqstr, date, f)
 		}
 		if contains(*detail, "ip all") {
 			reportIP(iprows, date+" Ip-info", f)
@@ -60,7 +62,7 @@ func main() {
 		}
 		if *verbose {
 			if contains(*detail, "page all") {
-				printPage(&requestrows, keys, *reqstr)
+				printPage(requestrows, keys, *reqstr)
 			}
 			if contains(*detail, "ip all") {
 				printIP(iprows)
@@ -72,7 +74,7 @@ func main() {
 	}
 	f.DeleteSheet("Sheet1") // delete the default sheet
 	if err := f.SaveAs(*reportname); err != nil {
-		fmt.Println(err)
+		log.Fatal(err) // Ensure exit with non-zero exitcode on error.
 	}
 	if *mail {
 		sendMail(*reportname)
@@ -80,9 +82,9 @@ func main() {
 	os.Exit(0)
 }
 
-func printPage(requestrows *map[string][]int64, keys []string, request string) {
+func printPage(requestrows map[string][]int64, keys []string, request string) {
 	for _, key := range keys {
-		value := (*requestrows)[key]
+		value := requestrows[key]
 		if contains(key, strings.ToLower(*reqstr)) {
 			av := average(value)
 			threshold := av
@@ -110,6 +112,7 @@ func readLog(filename string, f *excelize.File) (map[string][]int64, map[string]
 	statusrows := make(map[string]int)
 	iprows := make(map[string]*ipinfo)
 	requestrows := make(map[string][]int64)
+	// TODO: ReadFile reads entire file into memory. Consider reading it line-by-line with bufio.Reader.
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		fmt.Printf("Error in read file")
@@ -201,7 +204,7 @@ func inUserName(currentUsers, user string) bool {
 	return false
 }
 
-func reportPage(requestrows *map[string][]int64, keys []string, request, date string, f *excelize.File) {
+func reportPage(requestrows map[string][]int64, keys []string, request, date string, f *excelize.File) {
 	f.NewSheet(date)
 	f.SetCellValue(date, "A1", "Request")
 	f.SetCellValue(date, "B1", "Antal")
@@ -212,7 +215,7 @@ func reportPage(requestrows *map[string][]int64, keys []string, request, date st
 	count := 2
 	for _, key := range keys {
 		if contains(key, request) {
-			value := (*requestrows)[key]
+			value := requestrows[key]
 			av := average(value)
 			index := strconv.Itoa(count)
 			f.SetCellValue(date, "A"+index, key)
@@ -270,6 +273,7 @@ func reqthres(request []int64, threshold int64) int {
 	}
 	return count
 }
+
 func average(request []int64) int64 {
 	var sum int64
 	var ign int // ignored 302 request with 0 duration
@@ -315,7 +319,7 @@ func sendMail(reportname string) {
 
 	d := gomail.NewDialer("localhost", 25, "", "")
 
-	// Send the email to Bob, Cora and Dan.
+	// Send the email to Torsten :)
 	if err := d.DialAndSend(m); err != nil {
 		panic(err)
 	}
