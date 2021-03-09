@@ -25,7 +25,7 @@ type ipinfo struct {
 
 //var files = flag.String("f", "", "log files to be read")
 var detail = flag.String("d", "page", "level of detail: page | ip | status | all")
-var reqstr = flag.String("r", ".aspx /api/", "request string")
+var reqstr = flag.String("r", ".aspx", "request string")
 var verbose = flag.Bool("v", true, "write report to screen")
 var reportname = flag.String("e", "Logreport.xlsx", "Excel report filename")
 var mail = flag.Bool("m", false, "send mail")
