@@ -1,5 +1,6 @@
 package main
 
+// iisreader analyses and samples informaton from the iislog and generates various reports in excel
 import (
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/360EntSecGroup-Skylar/excelize/v2"
 	uuid "github.com/satori/go.uuid"
+	"gopkg.in/gomail.v2"
 )
 
 // excel documentation: https://xuri.me/excelize/en/
@@ -23,16 +25,19 @@ type ipinfo struct {
 
 //var files = flag.String("f", "", "log files to be read")
 var detail = flag.String("d", "page", "level of detail: page | ip | status | all")
-var reqstr = flag.String("r", ".aspx", "request string")
+var reqstr = flag.String("r", ".aspx /api/", "request string")
 var verbose = flag.Bool("v", true, "write report to screen")
+var reportname = flag.String("e", "Logreport.xlsx", "Excel report filename")
+var mail = flag.Bool("m", false, "send mail")
 
 func main() {
 	flag.Parse()
-
 	fmt.Printf("Detail:%s\n", *detail)
 	fmt.Printf("Request string:%s\n", *reqstr)
-	fmt.Printf("Verbose:%t", *verbose)
+	fmt.Printf("Verbose:%t\n", *verbose)
+	fmt.Printf("Excel report:%s\n", *reportname)
 	files := flag.Args()
+	fmt.Printf("mail: %t\n", *mail)
 	fmt.Printf("%s\n", files)
 	f := excelize.NewFile()
 
@@ -44,30 +49,41 @@ func main() {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		reportPage(&requestrows, keys, *reqstr, date, f)
-
-		reportIP(iprows, date+" Ip-info", f)
-
-		reportStatus(statusrows, date+" Statuskoder", f)
-
+		if contains(*detail, "page all") {
+			reportPage(&requestrows, keys, *reqstr, date, f)
+		}
+		if contains(*detail, "ip all") {
+			reportIP(iprows, date+" Ip-info", f)
+		}
+		if contains(*detail, "status all") {
+			reportStatus(statusrows, date+" Statuskoder", f)
+		}
 		if *verbose {
-			printPage(&requestrows, keys, *reqstr)
-			printIP(iprows)
-			printStatus(statusrows)
+			if contains(*detail, "page all") {
+				printPage(&requestrows, keys, *reqstr)
+			}
+			if contains(*detail, "ip all") {
+				printIP(iprows)
+			}
+			if contains(*detail, "status all") {
+				printStatus(statusrows)
+			}
 		}
 	}
 	f.DeleteSheet("Sheet1") // delete the default sheet
-	if err := f.SaveAs("LogReport1.xlsx"); err != nil {
+	if err := f.SaveAs(*reportname); err != nil {
 		fmt.Println(err)
 	}
-
+	if *mail {
+		sendMail(*reportname)
+	}
 	os.Exit(0)
 }
 
 func printPage(requestrows *map[string][]int64, keys []string, request string) {
 	for _, key := range keys {
 		value := (*requestrows)[key]
-		if strings.Contains(key, strings.ToLower(*reqstr)) {
+		if contains(key, strings.ToLower(*reqstr)) {
 			av := average(value)
 			threshold := av
 			fmt.Printf("%s:%d:%d,threshold:%d, max:%d, min:%d\n", key, len(value), av, reqthres(value, threshold), max(value), min(value))
@@ -125,10 +141,6 @@ func readLog(filename string, f *excelize.File) (map[string][]int64, map[string]
 			duration := strings.Trim(entry[13], "\r") // remove Carriage return from the time entry
 
 			request := trimRequest(entry[4])
-			//fmt.Printf("Last byte: %x\n", time[len(time)-1:])
-			//time = time[0 : len(time)-1]
-			//	fmt.Printf("%s\n", time)
-			//	fmt.Printf("%s : %d\n", entry[13], len(entry[13]))
 			statusrows[status]++
 			if val, ok := iprows[sourceip]; ok {
 				val.norequest++
@@ -144,38 +156,30 @@ func readLog(filename string, f *excelize.File) (map[string][]int64, map[string]
 				if username != "-" {
 					ip.username = username
 				}
-
 			}
-
 			i, err := strconv.ParseInt(duration, 10, 64)
 			if err == nil {
 				requestrows[request] = append(requestrows[request], i)
-				//if i > 1000 {
-				//	fmt.Printf("%s %s\n", entry[4], entry[13])
-				//}
 			}
 		}
-
-		//fmt.Printf("%v", requestrows)
 	}
-
 	return requestrows, iprows, statusrows, date
-	/*
-		for _, key := range keys {
-			value := requestrows[key]
-			if strings.Contains(key, "/api") {
-				av := average(value)
-				threshold := av
-				fmt.Printf("%s:%d:%d,threshold:%d, max:%d, min:%d\n", key, len(value), av, reqthres(value, threshold), max(value), min(value))
-			}
-		}
-	*/
-	// for key, value := range requestrows {
-	// 	if strings.Contains(key, ".aspx") {
-	// 		fmt.Printf("%s:%d:%d, max:%d, min:%d\n", key, len(value), average(value), max(value), min(value))
-	// 	}
-	// }
 }
+
+// converts a string of space separated substrings, eg. "str1 str2 str3", to an array of strings
+// and tests individually whether the string is contained in source
+func contains(source, target string) bool {
+	targetarr := strings.Split(target, " ")
+	for _, t := range targetarr {
+		if strings.Contains(source, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// removes parameters from the end of api calls using the http protocol in the form of guids
+// in order to sample over the same request
 func trimRequest(request string) string {
 	reqkom := strings.Split(request, "/")
 	if strings.Contains(request, "/api") {
@@ -207,7 +211,7 @@ func reportPage(requestrows *map[string][]int64, keys []string, request, date st
 	f.SetCellValue(date, "F1", "Minimum")
 	count := 2
 	for _, key := range keys {
-		if strings.Contains(key, request) {
+		if contains(key, request) {
 			value := (*requestrows)[key]
 			av := average(value)
 			index := strconv.Itoa(count)
@@ -299,4 +303,20 @@ func max(request []int64) int64 {
 		}
 	}
 	return max
+}
+func sendMail(reportname string) {
+	m := gomail.NewMessage()
+	m.SetHeader("From", "torsten.jepsen@gmail.com")
+	m.SetHeader("To", "torsten.jepsen@gmail.com")
+	//	m.SetAddressHeader("Cc", "dan@example.com", "Dan")
+	m.SetHeader("Subject", "Iis log report")
+	m.SetBody("text/html", "Here is the log report")
+	m.Attach("reportname")
+
+	d := gomail.NewDialer("localhost", 25, "", "")
+
+	// Send the email to Bob, Cora and Dan.
+	if err := d.DialAndSend(m); err != nil {
+		panic(err)
+	}
 }
