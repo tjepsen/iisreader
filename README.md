@@ -4,33 +4,33 @@ It summarizes the number of requests, response times and average responses times
 It can extract a set of defined requests and give a report for these requests
 It can be customized for scheduled tasks so that it automatically can provide, e.g. a daily or weekly, report
 
-# flags
+## flags
 
 iisreader is a command based tool with several parameters to customize your report. It comes with the following flags:
 
-## level of detail: page | ip | status | all: 
+### level of detail: page | ip | status | all: 
 -detail default: page, which reports the ".aspx" requests, "page", "level of detail: page | ip | status | all")
-## filter:  "<list of strings>"
+### filter:  "list of strings"
 -filter default: ".aspx"
 
-## verbose: writes the output to the screen
+### verbose: writes the output to the screen
 -v default: true
-## reportname: name of the excel report
+### reportname: name of the excel report
 -reportname default: "Logreport.xlsx"
-## mail: send mail via localhost, port 25 
+### mail: send mail via localhost, port 25 
 -m default: false     
 
-## hostname: host mail server
+### hostname: host mail server
 -hostname default: localhost
 
-## port: mail port
+### port: mail port
 -p default: 25
 
-## to: receiver of mail
+### to: receiver of mail
 -to default: 
 
-## from: sender
+### from: sender
 -from default: logreport@kimik-it.gl
 
-## days: number of days that report should be generated for starting from previous day
+### days: number of days that report should be generated for starting from previous day
 -days default: 0 which means that the program uses the filenames specified as parameter on cmd line
