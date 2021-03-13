@@ -20,17 +20,17 @@ iisreader is a command based tool with several parameters to customize your repo
 ## mail: send mail via localhost, port 25 
 -m default: false     
 
-## hostname host mail server
+## hostname: host mail server
 -hostname default: localhost
 
-## mail port
+## port: mail port
 -p default: 25
 
-## mailto receiver of mail
--mailto default: 
+## to: receiver of mail
+-to default: 
 
-## mailfrom sender
--mailfrom default: logreport@kimik-it.gl
+## from: sender
+-from default: logreport@kimik-it.gl
 
-## days Number of days that report should be generated for starting from previous day
--days dafault: 0 which means that the program uses the filenames specified as parameter on cmd line
+## days: number of days that report should be generated for starting from previous day
+-days default: 0 which means that the program uses the filenames specified as parameter on cmd line
