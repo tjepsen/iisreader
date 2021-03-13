@@ -37,7 +37,7 @@ iisreader is a command based tool with several parameters to customize your repo
 
 ## Configuration Examples
 
-The standard usage for an ad hoc report is *iislogreader $<$filename$>$*, e.g. *iislogreader u_ex210309.log*
+The standard usage for an ad hoc report is *iislogreader \<filename\>*, e.g. *iislogreader u_ex210309.log*
 This command will generate an excel file with the default name **Logreport.xlsx** containing the requests containing the string ".aspx" in the url of the request
 and write the content of the report to the screen.
 
