@@ -2,6 +2,7 @@ package main
 
 // iisreader analyses and samples informaton from the iislog and generates various reports in excel
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/360EntSecGroup-Skylar/excelize/v2"
 	uuid "github.com/satori/go.uuid"
@@ -25,12 +27,17 @@ type ipinfo struct {
 }
 
 var (
-	files      = flag.String("f", "", "log files to be read")
-	detail     = flag.String("d", "page", "level of detail: page | ip | status | all")
-	reqstr     = flag.String("r", ".aspx", "request string")
+	//	files      = flag.String("f", "", "log files to be read")
+	detail     = flag.String("detail", "page", "level of detail: page | ip | status | all")
+	reqstr     = flag.String("filter", ".aspx", "request URL filter")
 	verbose    = flag.Bool("v", true, "write report to screen")
-	reportname = flag.String("e", "Logreport.xlsx", "Excel report filename")
+	nodays     = flag.Int("days", 0, "Number of days that report should be generated for starting from current day")
+	reportname = flag.String("name", "Logreport.xlsx", "Excel report filename")
 	mail       = flag.Bool("m", false, "send mail")
+	hostname   = flag.String("host", "localhost", "host mail server")
+	port       = flag.Int("p", 25, "mail port")
+	mailto     = flag.String("to", "", "mail to")
+	mailfrom   = flag.String("from", "logreport@kimik-it.gl", "mail from")
 )
 
 func main() {
@@ -42,6 +49,20 @@ func main() {
 	files := flag.Args()
 	fmt.Printf("mail: %t\n", *mail)
 	fmt.Printf("%s\n", files)
+	now := time.Now().AddDate(0, 0, -1) // subtract 1 day, ie. start with the previous day
+	if *nodays > 0 {
+		// if days is used as a parameter ignore possible filenames on the command line
+		// and reset files to contain the generated filenames
+		files = []string{}
+	}
+	for i := *nodays; i > 0; i-- {
+		file := generateLogfilename(now)
+		//file := "u_ex" + strconv.Itoa(year)[2:] + fmt.Sprintf("%02d", month) + fmt.Sprintf("%02d", day) + ".log"
+		fmt.Printf("%s\n", file)
+		files = append(files, file)
+		now = now.AddDate(0, 0, -1)
+	}
+
 	f := excelize.NewFile()
 
 	for _, file := range files {
@@ -78,9 +99,15 @@ func main() {
 		log.Fatal(err) // Ensure exit with non-zero exitcode on error.
 	}
 	if *mail {
-		sendMail(*reportname)
+		sendMail(*reportname, *hostname, *mailto, *mailfrom, *port)
 	}
 	os.Exit(0)
+}
+func generateLogfilename(now time.Time) string {
+	year := now.Year()
+	month := int(now.Month())
+	day := now.Day()
+	return fmt.Sprintf("u_ex%02d%02d%02d.log", year%100, month, day)
 }
 
 func printPage(requestrows map[string][]int64, keys []string, request string) {
@@ -144,7 +171,7 @@ func readLog(filename string, f *excelize.File) (map[string][]int64, map[string]
 			status := entry[10]
 			duration := strings.Trim(entry[13], "\r") // remove Carriage return from the time entry
 
-			request := trimRequest(entry[4])
+			request := trimRequestExt(entry[4])
 			statusrows[status]++
 			if val, ok := iprows[sourceip]; ok {
 				val.norequest++
@@ -195,6 +222,22 @@ func trimRequest(request string) string {
 	return strings.ToLower(request)
 }
 
+func trimRequestExt(request string) string {
+	reqkom := strings.Split(request, "/")
+	if strings.Contains(request, "/api") {
+		for i, str := range reqkom {
+			_, err := uuid.FromString(str)
+			if err == nil {
+				return strings.ToLower(strings.Join(reqkom[0:i], "/"))
+			}
+			_, err = strconv.ParseUint(str, 10, 64)
+			if err == nil {
+				return strings.ToLower(strings.Join(reqkom[0:i], "/"))
+			}
+		}
+	}
+	return strings.ToLower(request)
+}
 func inUserName(currentUsers, user string) bool {
 	users := strings.Split(currentUsers, " ")
 	for _, cuser := range users {
@@ -309,17 +352,17 @@ func max(request []int64) int64 {
 	}
 	return max
 }
-func sendMail(reportname string) {
+func sendMail(reportname, hostname, mailto, mailfrom string, port int) {
 	m := gomail.NewMessage()
-	m.SetHeader("From", "torsten.jepsen@gmail.com")
-	m.SetHeader("To", "torsten.jepsen@gmail.com")
+	m.SetHeader("From", mailfrom)
+	m.SetHeader("To", mailto)
 	//	m.SetAddressHeader("Cc", "dan@example.com", "Dan")
 	m.SetHeader("Subject", "Iis log report")
 	m.SetBody("text/html", "Here is the log report")
-	m.Attach("reportname")
+	m.Attach(reportname)
 
-	d := gomail.NewDialer("localhost", 25, "", "")
-
+	d := gomail.NewDialer(hostname, 25, "", "")
+	d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	// Send the email to Torsten :)
 	if err := d.DialAndSend(m); err != nil {
 		panic(err)
