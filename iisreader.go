@@ -5,10 +5,10 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,6 +82,79 @@ func (p *PageInfo) Report(filter, date string, f *excelize.File) {
 		}
 	}
 	f.SetColWidth(date, "A", "A", 30)
+}
+
+/*
+	type accessinfo struct {
+		ressource string
+		count     int
+	}
+*/
+type UserInfo struct {
+	requests map[string]map[string]int
+	keys     []string
+}
+
+func (u *UserInfo) Init() {
+	u.requests = make(map[string]map[string]int)
+}
+
+func (u *UserInfo) Sort() {
+	u.keys = make([]string, len(u.requests))
+	for key := range u.requests {
+		u.keys = append(u.keys, key)
+	}
+	sort.Strings(u.keys)
+}
+
+func (u *UserInfo) Add(username, page string) {
+	//u.requests[username]
+	if val, ok := u.requests[username]; ok {
+		val[page]++
+	} else {
+		ressource := make(map[string]int)
+		//ressource[page]++
+		u.requests[username] = ressource
+	}
+	u.requests[username][page]++
+}
+
+func (u *UserInfo) Print(filter string) {
+	fmt.Println("Printing Userinfo................................................................" + filter)
+	for _, key := range u.keys {
+		value := u.requests[key]
+		for res, count := range value {
+			if contains(strings.ToLower(res), strings.ToLower(filter)) {
+				fmt.Printf("%s\t %s: %d\n", key, res, count)
+			}
+		}
+	}
+}
+
+func (u *UserInfo) Report(filter, name string, f *excelize.File) {
+	f.NewSheet(name)
+	f.SetCellValue(name, "A1", "Brugernavn")
+	f.SetCellValue(name, "B1", "webside")
+	f.SetCellValue(name, "C1", "Antal requests")
+	//f.SetCellValue(name, "C1", "Antal requests")
+
+	rowcount := 2
+	for _, key := range u.keys {
+		value := u.requests[key]
+		for res, count := range value {
+			if contains(strings.ToLower(res), strings.ToLower(filter)) {
+				index := strconv.Itoa(rowcount)
+				if len(key) > 0 {
+					fmt.Printf("%s\t %s: %d\n", key, res, count)
+					f.SetCellValue(name, "A"+index, key)
+					f.SetCellValue(name, "B"+index, res)
+					f.SetCellValue(name, "C"+index, count)
+					rowcount++
+				}
+			}
+		}
+	}
+
 }
 
 type IpadrInfo struct {
@@ -207,17 +280,52 @@ func (i *IntervalInfo) Sort() {
 	}
 	sort.Strings(i.keys)
 }
-
-func SortMap(elements map[string]interface{}) []string {
-	keys := make([]string, len(elements))
-	for key := range elements {
-		keys = append(keys, key)
+func (i *IntervalInfo) Report(filter, date string, f *excelize.File) {
+	f.NewSheet(date)
+	f.SetCellValue(date, "A1", "Request")
+	f.SetCellValue(date, "B1", "Antal")
+	f.SetCellValue(date, "C1", "Gennemsnit")
+	f.SetCellValue(date, "D1", "Antal over gennemsnit")
+	f.SetCellValue(date, "E1", "Maximum")
+	f.SetCellValue(date, "F1", "Minimum")
+	count := 2
+	for _, key := range i.keys {
+		value := i.requests[key]
+		index := strconv.Itoa(count)
+		if len(key) > 0 {
+			f.SetCellValue(date, "A"+index, key)
+			count++
+		}
+		for subkey, subvalue := range value {
+			if contains(subkey, strings.ToLower(filter)) {
+				av := average(subvalue)
+				index := strconv.Itoa(count)
+				f.SetCellValue(date, "A"+index, subkey)
+				f.SetCellValue(date, "B"+index, len(subvalue))
+				f.SetCellValue(date, "C"+index, av)
+				f.SetCellValue(date, "D"+index, reqthres(subvalue, av))
+				f.SetCellValue(date, "E"+index, max(subvalue))
+				f.SetCellValue(date, "F"+index, min(subvalue))
+				count++
+			}
+		}
 	}
-	sort.Strings(keys)
-	return keys
+	f.SetColWidth(date, "A", "A", 30)
 }
+
+/*
+	func SortMap(elements map[string]interface{}) []string {
+		keys := make([]string, len(elements))
+		for key := range elements {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		return keys
+	}
+*/
 func (i *IntervalInfo) print(filter string) {
-	for key, value := range i.requests {
+	for _, key := range i.keys {
+		value := i.requests[key]
 		fmt.Printf("%s:\n", key)
 		for subkey, subvalue := range value {
 			if contains(subkey, strings.ToLower(filter)) {
@@ -240,7 +348,9 @@ var (
 	hostname   = flag.String("host", "localhost", "host mail server")
 	port       = flag.Int("p", 25, "mail port")
 	mailto     = flag.String("to", "", "mail to")
-	mailfrom   = flag.String("from", "logreport@kimik-it.gl", "mail from")
+	mailfrom   = flag.String("from", "logreport@kimik.it", "mail from")
+	period     = flag.String("period", "", "date interval of log files split by ,")
+	wrkdir     = flag.String("wrkdir", "", "working directory")
 )
 
 func main() {
@@ -252,40 +362,73 @@ func main() {
 	files := flag.Args()
 	fmt.Printf("mail: %t\n", *mail)
 	fmt.Printf("%s\n", files)
-	now := time.Now().AddDate(0, 0, -1) // subtract 1 day, ie. start with the previous day
-	if *nodays > 0 {
-		// if days is used as a parameter ignore possible filenames on the command line
-		// and reset files to contain the generated filenames
-		files = []string{}
-	}
-	for i := *nodays; i > 0; i-- {
-		file := generateLogfilename(now)
-		//file := "u_ex" + strconv.Itoa(year)[2:] + fmt.Sprintf("%02d", month) + fmt.Sprintf("%02d", day) + ".log"
-		fmt.Printf("%s\n", file)
-		files = append(files, file)
-		now = now.AddDate(0, 0, -1)
-	}
+	fmt.Printf("period:%s\n", *period)
+	handleWorkingDirectory()
+
+	// subtract 1 day, ie. start with the previous day
+	// if days is used as a parameter ignore possible filenames on the command line
+	// and reset files to contain the generated filenames
+	//file := "u_ex" + strconv.Itoa(year)[2:] + fmt.Sprintf("%02d", month) + fmt.Sprintf("%02d", day) + ".log"
+	files = handleDays(files)
+
+	files = handlePeriod(files)
 
 	f := excelize.NewFile()
 
+	global_pagerows := PageInfo{}
+	global_pagerows.Init()
 	for _, file := range files {
 		fmt.Printf("%s\n", file)
-		iprows, statusrows, intervalrows, pagerows, date := readLog(file)
-
+		/*
+			var (
+				userrows     *UserInfo
+				iprows       *IpadrInfo
+				statusrows   *StatusInfo
+				intervalrows *IntervalInfo
+				pagerows     *PageInfo
+				date         string
+			)
+		*/
+		userrows, iprows, statusrows, intervalrows, pagerows, date := readLog(file, &global_pagerows)
+		/*
+				for _, key := range p.keys {
+					if contains(key, filter) {
+						value := p.requests[key]
+						av := average(value)
+			for _, key := range pagerows.keys {
+				value := pagerows.requests[key]
+				av := average(value)
+				threshold := av
+				fmt.Printf("GLOBAL %s:%d:%d,threshold:%d, max:%d, min:%d\n", key, len(value), av, reqthres(value, threshold), max(value), min(value))
+				global_pagerows.Add(key, av)
+			}
+		*/
+		if date == "" {
+			continue
+		}
 		pagerows.Sort()
 		iprows.Sort()
 		statusrows.Sort()
+		userrows.Sort()
+		intervalrows.Sort()
 		if contains(*detail, "page all") {
-			pagerows.Report(*reqstr, date, f)
+			pagerows.Report(*reqstr /*date*/, date+" Websider", f)
 			//reportPage(requestrows, keys, *reqstr, date, f)
 		}
-		if contains(*detail, "ip all") {
+		if contains(*detail, "ip") {
 			iprows.Report(date+" Ip-info", f)
 		}
 		if contains(*detail, "status all") {
 			statusrows.Report(date+" Statuskoder", f)
 		}
+		if contains(*detail, "user all") {
+			userrows.Report(*reqstr, date+" Brugersider", f)
+		}
+		if contains(*detail, "interval") {
+			intervalrows.Report(*reqstr, date+" Websider - interval", f)
+		}
 		if *verbose {
+
 			if contains(*detail, "page all") {
 				pagerows.Print(*reqstr)
 			}
@@ -295,9 +438,20 @@ func main() {
 			if contains(*detail, "status all") {
 				statusrows.Print()
 			}
-			intervalrows.print(*reqstr)
+
+			if contains(*detail, "user all") {
+				userrows.Print(*reqstr)
+			}
+			if contains(*detail, "interval") {
+				fmt.Println("Printing intervalrows:")
+				intervalrows.print(*reqstr)
+			}
 		}
 	}
+	global_pagerows.Sort()
+	fmt.Println("Pinrting global --------------------------------------------------------------")
+	global_pagerows.Print(*reqstr)
+	global_pagerows.Report(*reqstr, "Alle websider", f)
 	f.DeleteSheet("Sheet1") // delete the default sheet
 	if err := f.SaveAs(*reportname); err != nil {
 		log.Fatal(err) // Ensure exit with non-zero exitcode on error.
@@ -308,6 +462,62 @@ func main() {
 	os.Exit(0)
 }
 
+func handlePeriod(files []string) []string {
+	if len(*period) > 0 {
+		const layout = "2006-01-02"
+		dates := strings.Split(*period, ",")
+		startdate, err := time.Parse(layout, dates[0])
+		if err != nil {
+			fmt.Printf("Error in dateformat: %s\n", dates[0])
+			os.Exit(2)
+		}
+		enddate, err := time.Parse(layout, dates[1])
+
+		enddate = enddate.AddDate(0, 0, 1)
+		if err != nil {
+			fmt.Printf("Error in dateformat: %s\n", dates[1])
+			os.Exit(2)
+		}
+		for startdate != enddate {
+			year := startdate.Year()
+			month := int(startdate.Month())
+			day := startdate.Day()
+			file := fmt.Sprintf("u_ex%02d%02d%02d.log", year%100, month, day)
+			files = append(files, file)
+			startdate = startdate.AddDate(0, 0, 1)
+		}
+
+	}
+	return files
+}
+
+func handleDays(files []string) []string {
+	now := time.Now().AddDate(0, 0, -1)
+	if *nodays > 0 {
+
+		files = []string{}
+	}
+	for i := *nodays; i > 0; i-- {
+		file := generateLogfilename(now)
+
+		fmt.Printf("%s\n", file)
+		files = append(files, file)
+		now = now.AddDate(0, 0, -1)
+	}
+	return files
+}
+
+func handleWorkingDirectory() {
+	if *wrkdir != "" {
+		os.Chdir(*wrkdir)
+		newDir, err := os.Getwd()
+		if err != nil {
+			fmt.Printf("Invalid working directory\n")
+		}
+		fmt.Printf("Current Working Directory: %s\n", newDir)
+	}
+}
+
 func generateLogfilename(now time.Time) string {
 	year := now.Year()
 	month := int(now.Month())
@@ -315,7 +525,8 @@ func generateLogfilename(now time.Time) string {
 	return fmt.Sprintf("u_ex%02d%02d%02d.log", year%100, month, day)
 }
 
-func readLog(filename string) (*IpadrInfo, *StatusInfo, *IntervalInfo, *PageInfo, string) {
+func readLog(filename string, global_pagerows *PageInfo) (*UserInfo, *IpadrInfo, *StatusInfo, *IntervalInfo, *PageInfo, string) {
+	var fields []string
 	var date string
 	statusrows := StatusInfo{}
 	statusrows.Init()
@@ -325,17 +536,32 @@ func readLog(filename string) (*IpadrInfo, *StatusInfo, *IntervalInfo, *PageInfo
 	pagerows.Init()
 	intervalrows := IntervalInfo{}
 	intervalrows.Init()
+	userrows := UserInfo{}
+	userrows.Init()
 
 	// TODO: ReadFile reads entire file into memory. Consider reading it line-by-line with bufio.Reader.
-	data, err := ioutil.ReadFile(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
-		fmt.Printf("Error in read file")
-		os.Exit(0)
+		fmt.Printf("Error in read file\n")
+		return nil, nil, nil, nil, nil, ""
+		//os.Exit(0)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.Trim(line, "\r")
 		entry := strings.Split(line, " ")
+
 		if len(entry) > 1 && entry[0] == "#Date:" {
 			date = entry[1]
+		}
+		if len(entry) > 1 && entry[0] == "#Fields:" {
+			fields = make([]string, len(entry)-1)
+			copy(fields, entry[1:])
+			// remove new line char in last field
+			//for i, str := range fields {
+			//	fields[i] = strings.Trim(str, "\r")
+			//}
+			//fmt.Println("")
+
 		}
 		if len(entry) > 1 && entry[0][0] != '#' {
 			// date = entry[0]
@@ -352,22 +578,25 @@ func readLog(filename string) (*IpadrInfo, *StatusInfo, *IntervalInfo, *PageInfo
 			// substatus = entry[11]
 			// win32status = entry[12]
 			// duration = entry[13]
-			time := entry[1]
-			username := entry[7]
-			sourceip := entry[8]
-			status := entry[10]
-			duration := strings.Trim(entry[13], "\r") // remove Carriage return from the time entry
-			request := trimRequestExt(entry[4])
+			time := entry[slices.Index(fields, "time")]
+			username := entry[slices.Index(fields, "cs-username")]
+			sourceip := entry[slices.Index(fields, "c-ip")]
+			status := entry[slices.Index(fields, "sc-status")]
+			//duration := strings.Trim(entry[slices.Index(fields, "time-taken")], "\r") // remove Carriage return from the time entry
+			duration := entry[slices.Index(fields, "time-taken")]
+			request := trimRequestExt(entry[slices.Index(fields, "cs-uri-stem")])
 			statusrows.Add(status)
 			ipadrrows.Add(sourceip, username)
+			userrows.Add(username, request)
 			i, err := strconv.ParseInt(duration, 10, 64)
 			if err == nil {
 				pagerows.Add(request, i)
+				global_pagerows.Add(request, i)
 				intervalrows.Add(time, request, i)
 			}
 		}
 	}
-	return &ipadrrows, &statusrows, &intervalrows, &pagerows, date
+	return &userrows, &ipadrrows, &statusrows, &intervalrows, &pagerows, date
 }
 
 // converts a string of space separated substrings, eg. "str1 str2 str3", to an array of strings
@@ -384,6 +613,7 @@ func contains(source, target string) bool {
 
 // removes parameters from the end of api calls using the http protocol in the form of guids
 // in order to sample over the same request
+/*
 func trimRequest(request string) string {
 	reqkom := strings.Split(request, "/")
 	if strings.Contains(request, "/api") {
@@ -394,7 +624,7 @@ func trimRequest(request string) string {
 	}
 	return strings.ToLower(request)
 }
-
+*/
 // removes parameters from the api calls using the http protocol, either the form of ints or guids
 // starts from the beginning of the request until it finds a value between slashes that are eiter are guid or an int
 func trimRequestExt(request string) string {
